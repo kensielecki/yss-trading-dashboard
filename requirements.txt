@@ -1,0 +1,5 @@
+yfinance
+pandas
+plotly
+python-dateutil
+pytz

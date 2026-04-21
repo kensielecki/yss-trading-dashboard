@@ -1,0 +1,52 @@
+name: Refresh YSS Data
+
+on:
+  schedule:
+    # 9:45 AM ET — EDT (UTC-4, ~Mar–Nov)
+    - cron: '45 13 * * 1-5'
+    # 9:45 AM ET — EST (UTC-5, ~Nov–Mar)
+    - cron: '45 14 * * 1-5'
+    # 12:30 PM ET — EDT
+    - cron: '30 16 * * 1-5'
+    # 12:30 PM ET — EST
+    - cron: '30 17 * * 1-5'
+    # 4:15 PM ET — EDT
+    - cron: '15 20 * * 1-5'
+    # 4:15 PM ET — EST
+    - cron: '15 21 * * 1-5'
+  workflow_dispatch:
+
+concurrency:
+  group: refresh
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run pipeline
+        run: bash run_pipeline.sh
+
+      - name: Commit and push
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add output/ docs/
+          git diff --staged --quiet && { echo "Nothing to commit — no-op."; exit 0; }
+          git commit -m "chore: refresh YSS data [skip ci]"
+          git push
