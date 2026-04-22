@@ -78,6 +78,15 @@ def main():
 
     market_holidays = get_market_holidays()
 
+    # ── Session groups (bands + markers) ──────────────────────────────────
+    running_df["_date"] = running_df["timestamp_et"].dt.date
+    session_dates = sorted(running_df["_date"].unique())
+    _open_by_date = (
+        summary_df.assign(_date=pd.to_datetime(summary_df["date"]).dt.date)
+        .set_index("_date")["open"]
+        .to_dict()
+    )
+
     # ── Plotly chart ───────────────────────────────────────────────────────
     fig = make_subplots(specs=[[{"secondary_y": True}]])
 
@@ -115,6 +124,51 @@ def main():
         annotation_font=dict(size=11, color="#D85A30"),
     )
 
+    # Change B: alternating session background shading (odd-indexed sessions)
+    for i, date in enumerate(session_dates):
+        if i % 2 == 0:
+            continue
+        sess = running_df[running_df["_date"] == date]
+        fig.add_vrect(
+            x0=sess["timestamp_et"].iloc[0],
+            x1=sess["timestamp_et"].iloc[-1],
+            fillcolor="rgba(136, 135, 128, 0.06)",
+            layer="below",
+            line_width=0,
+        )
+
+    # Change C: open/close price markers per session
+    open_xs, open_ys, close_xs, close_ys = [], [], [], []
+    for date in session_dates:
+        sess = running_df[running_df["_date"] == date]
+        open_price = _open_by_date.get(date)
+        if open_price is not None:
+            open_xs.append(sess["timestamp_et"].iloc[0])
+            open_ys.append(float(open_price))
+        close_xs.append(sess["timestamp_et"].iloc[-1])
+        close_ys.append(float(sess["close"].iloc[-1]))
+
+    fig.add_trace(
+        go.Scatter(
+            x=open_xs, y=open_ys,
+            mode="markers",
+            marker=dict(color="#3B6D11", size=8),
+            showlegend=False,
+            hovertemplate="%{x|%b %d %H:%M}<br>Open: $%{y:.2f}<extra></extra>",
+        ),
+        secondary_y=False,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=close_xs, y=close_ys,
+            mode="markers",
+            marker=dict(color="#A32D2D", size=8),
+            showlegend=False,
+            hovertemplate="%{x|%b %d %H:%M}<br>Close: $%{y:.2f}<extra></extra>",
+        ),
+        secondary_y=False,
+    )
+
     fig.update_layout(
         height=460,
         margin=dict(l=8, r=8, t=32, b=8),
@@ -146,6 +200,7 @@ def main():
         rangebreaks=[
             dict(bounds=["sat", "mon"]),
             dict(values=market_holidays),
+            dict(bounds=[16, 9.5], pattern="hour"),  # overnight 4 PM – 9:30 AM ET
         ]
     )
 
@@ -352,6 +407,7 @@ def main():
     <div class="section-label">Price &amp; VWAP — 10 sessions</div>
     {chart_html}
     <p class="chart-footnote">Solid price line shows 1-minute bars where available; hourly bars on initial backfill sessions (marked in table).</p>
+    <p class="chart-footnote">Green dots: session opens. Red dots: session closes (or latest price for today's session in progress).</p>
   </div>
 
   <div class="table-wrap">
