@@ -61,13 +61,20 @@ def main():
     avg_vol_10d   = int(m["avg_volume_10d"])
     last_updated_raw = str(m["last_updated"])
 
+    def fmt_ts(dt):
+        h    = dt.hour % 12 or 12
+        ampm = "AM" if dt.hour < 12 else "PM"
+        return f"{h}:{dt.minute:02d} {ampm} ET, {dt.strftime('%b %d, %Y')}"
+
     try:
         lu = dtparser.parse(last_updated_raw)
-        h    = lu.hour % 12 or 12
-        ampm = "AM" if lu.hour < 12 else "PM"
-        last_updated_fmt = f"{h}:{lu.minute:02d} {ampm} ET, {lu.strftime('%b %d, %Y')}"
+        if lu.tzinfo is None:
+            lu = ET.localize(lu)
+        data_through_fmt = fmt_ts(lu.astimezone(ET))
     except Exception:
-        last_updated_fmt = last_updated_raw
+        data_through_fmt = last_updated_raw
+
+    page_refreshed_fmt = fmt_ts(datetime.now(ET))
 
     market_holidays = get_market_holidays()
 
@@ -223,7 +230,9 @@ def main():
       padding: 3px 9px; border-radius: 4px;
       letter-spacing: 0.08em;
     }}
-    .updated {{ font-size: 13px; color: #888; }}
+    .timestamps {{ text-align: right; line-height: 1.55; }}
+    .ts-data {{ font-size: 13px; color: #555; }}
+    .ts-refresh {{ font-size: 12px; color: #aaa; }}
 
     .metrics {{
       display: grid;
@@ -310,7 +319,10 @@ def main():
       <h1>York Space Systems</h1>
       <span class="badge">NYSE: YSS</span>
     </div>
-    <span class="updated">Updated {last_updated_fmt}</span>
+    <div class="timestamps">
+      <div class="ts-data">Data through: {data_through_fmt}</div>
+      <div class="ts-refresh">Page refreshed: {page_refreshed_fmt}</div>
+    </div>
   </header>
 
   <div class="metrics">

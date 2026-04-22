@@ -1,8 +1,0 @@
-[2026-04-21T21:11:17Z] === YSS pipeline starting ===
-[2026-04-21T21:11:17Z] Log: output/logs/260421_1411_pipeline.log
-/Users/kensielecki/Library/Python/3.9/lib/python/site-packages/urllib3/__init__.py:35: NotOpenSSLWarning: urllib3 v2 only supports OpenSSL 1.1.1+, currently the 'ssl' module is compiled with 'LibreSSL 2.8.3'. See: https://github.com/urllib3/urllib3/issues/3020
-  warnings.warn(
-$YSS: possibly delisted; no price data found  (period=10d) (Yahoo error = "1m data not available for startTime=1775941880 and endTime=1776805880. Only 8 days worth of 1m granularity data are allowed to be fetched per request.")
-Fetching 10-day 1-min bars for YSS via yfinance…
-No data returned for YSS. Market may be closed or data unavailable.
-[2026-04-21T21:11:20Z] No minute bars TSV found — market closed or no data. Pipeline no-op.
