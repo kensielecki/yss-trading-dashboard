@@ -1,2 +1,2 @@
-last_price	last_updated	vwap_5d	high_5d	low_5d	avg_volume_5d	latest_pct_change
-41.2700	2026-04-21T15:59:00-04:00	38.2406	44.3050	34.5600	2758505.0000	7.5020
+last_price	last_updated	vwap_10d	high_10d	low_10d	avg_volume_10d	latest_pct_change
+41.2700	2026-04-21T15:59:00-04:00	35.5029	44.3050	26.8850	2993636.0000	7.5020

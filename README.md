@@ -5,9 +5,9 @@ Automated trading dashboard for York Space Systems (NYSE: YSS). Refreshed three 
 
 ## What it does
 
-1. Fetches the last 5 sessions of 1-minute bars for YSS from Yahoo Finance (via yfinance).
-2. Computes per-day VWAP, running intraday VWAP (resets at 09:30 ET), and a 5-day aggregate VWAP scalar.
-3. Renders a static HTML dashboard (`docs/index.html`) with a Plotly price+VWAP chart, four metric cards, and a daily summary table.
+1. Fetches up to 8 calendar days of 1-minute bars for YSS from Yahoo Finance (via yfinance) and merges them into a persistent rolling archive.
+2. Computes per-day VWAP, running intraday VWAP (resets at 09:30 ET), and a 10-day aggregate VWAP scalar.
+3. Renders a static HTML dashboard (`docs/index.html`) with a Plotly price+VWAP chart, four metric cards, and a daily summary table covering 10 trading sessions.
 4. Commits updated `output/` TSVs and `docs/index.html` back to `main`; GitHub Pages serves the result automatically.
 
 ## Data source
@@ -38,13 +38,25 @@ bash run_pipeline.sh
 
 Logs are written to `output/logs/YYMMDD_HHMM_pipeline.log`. Logs older than 8 weeks are pruned automatically by `prune_logs.py`.
 
+## How the data archive grows
+
+The dashboard shows 10 trading sessions from day one of the project, converging to full minute-bar fidelity after ~3 trading days of pipeline runs:
+
+**yfinance 1-min window:** Yahoo Finance caps 1-minute bar history at roughly 8 calendar days per API request. `fetch_intraday.py` always requests the maximum (`period="8d"`, falling back to `"7d"`), capturing the most recent 5–7 trading sessions per run.
+
+**Persistent archive (`output/_archive_minute_bars.tsv`):** Each run merges the newly fetched 1-min bars into a rolling archive. Overlapping timestamps prefer the newer fetch (handles intraday bar revisions). The archive is pruned to the last 10 US trading sessions on every run and overwritten in place — it grows organically, session by session, as the project accumulates runs over time.
+
+**Hourly backfill bootstrap:** On any run where the archive does not yet cover all 10 trading sessions, the pipeline fetches hourly bars (`period="10d", interval="1h"`) — Yahoo Finance retains 2 years of hourly data — and inserts them for the uncovered sessions tagged `source=yfinance_hourly_backfill`. This ensures the 10-session view is populated from day one, albeit at lower bar resolution for the oldest sessions.
+
+**Convergence:** As real 1-minute data accumulates over subsequent pipeline runs, hourly-backfilled sessions naturally age out of the 10-session window (replaced by live minute-bar captures of newer sessions). After ~3 trading days of regular pipeline fires, all 10 visible sessions will be backed by 1-minute bars. Sessions derived from hourly backfill are marked with an asterisk in the dashboard table.
+
 ## Script reference
 
 | Script | Purpose |
 |---|---|
-| `fetch_intraday.py` | Fetch 5-day 1-min bars; write `output/YYMMDD_minute_bars.tsv` |
-| `compute_vwap.py` | Compute daily VWAP, running VWAP, headline metrics; write 3 TSVs |
-| `render_page.py` | Read TSVs; render `docs/index.html` via Plotly |
+| `fetch_intraday.py` | Fetch 1-min bars (8d); merge into `output/_archive_minute_bars.tsv`; hourly backfill for any missing sessions; write date-stamped snapshot |
+| `compute_vwap.py` | Read archive; compute daily VWAP + `high_fidelity` flag, running VWAP, 10-day headline metrics; write 3 TSVs |
+| `render_page.py` | Read TSVs; render `docs/index.html` via Plotly (10-session chart, weekend/holiday rangebreaks) |
 | `run_pipeline.sh` | Orchestrate all three scripts; log to `output/logs/` |
 | `prune_logs.py` | Delete logs older than 8 weeks |
 
@@ -78,9 +90,10 @@ Six cron entries cover both EDT (UTC-4) and EST (UTC-5) to handle Daylight Savin
 
 ```
 output/
-  YYMMDD_minute_bars.tsv        # raw 1-min OHLCV + source column
-  YYMMDD_daily_summary.tsv      # date, open, close, pct_change, volume, daily_vwap
-  YYMMDD_running_vwap.tsv       # per-bar running VWAP time series
+  _archive_minute_bars.tsv      # canonical rolling archive (10 sessions, overwritten each run)
+  YYMMDD_minute_bars.tsv        # date-stamped snapshot of archive (debugging reference)
+  YYMMDD_daily_summary.tsv      # date, open, close, pct_change, volume, daily_vwap, high_fidelity
+  YYMMDD_running_vwap.tsv       # per-bar running VWAP time series (used by chart)
   YYMMDD_headline_metrics.tsv   # single-row summary (last price, 10d VWAP, etc.)
   logs/
     YYMMDD_HHMM_pipeline.log
@@ -91,7 +104,6 @@ All timestamps are ISO 8601 in `America/New_York` (ET). TSVs are UTF-8, tab-sepa
 ## Known limitations
 
 - yfinance is unofficial and may break without notice.
-- Yahoo Finance caps 1-min intraday data at ~8 calendar days per request; the pipeline fetches the last 5 trading sessions (`period="5d"`).
+- Yahoo Finance caps 1-min intraday data at ~8 calendar days per request; the pipeline fetches 8d (falling back to 7d) and accumulates bars in a rolling archive.
 - Upgrading to a paid data source (Alpha Vantage, Polygon.io) would unlock deeper history.
-- Historical data before the yfinance window is not stored; re-running extends the TSV in place.
-- Holiday detection beyond weekday filtering is not implemented; the pipeline runs on federal holidays but simply re-fetches the same trailing data.
+- Holiday detection for the weekday gate uses a simple `weekday < 5` check; US market holidays are correctly handled in the chart rangebreaks and session calendar via `holidays`.
