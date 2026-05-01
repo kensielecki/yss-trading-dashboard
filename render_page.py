@@ -178,26 +178,50 @@ def main():
     # Each segment spans that session's time range at the 10-day VWAP level
     # as it stood at that session's close — shows how the 10-day VWAP drifts over time.
     first_rolling_trace = True
+    last_rolling_x = None
+    last_rolling_y = None
     for date in session_dates:
         vwap = _rolling_vwap_by_date.get(date)
         if vwap is None or pd.isna(vwap):
             continue
         sess = running_df[running_df["_date"] == date]
+        x0 = sess["timestamp_et"].iloc[0]
+        x1 = sess["timestamp_et"].iloc[-1]
         fig.add_trace(
             go.Scatter(
-                x=[sess["timestamp_et"].iloc[0], sess["timestamp_et"].iloc[-1]],
+                x=[x0, x1],
                 y=[float(vwap), float(vwap)],
                 mode="lines",
-                name="10-day VWAP (at close)" if first_rolling_trace else None,
+                name="Rolling 10-day VWAP (as of session close)" if first_rolling_trace else None,
                 showlegend=first_rolling_trace,
-                line=dict(color="#E8892A", width=2.5),
+                line=dict(color="rgba(180, 50, 50, 0.45)", width=2, dash="solid"),
                 hovertemplate=(
-                    f"%{{x|%b %d}}<br>10-day VWAP at close: ${float(vwap):.2f}<extra></extra>"
+                    f"%{{x|%b %d}}<br>Rolling 10-day VWAP at close: ${float(vwap):.2f}<extra></extra>"
                 ),
             ),
             secondary_y=False,
         )
+        last_rolling_x = x1
+        last_rolling_y = float(vwap)
         first_rolling_trace = False
+
+    # Label the most recent rolling 10-day VWAP segment on the chart
+    if last_rolling_x is not None:
+        fig.add_annotation(
+            x=last_rolling_x,
+            y=last_rolling_y,
+            text=f"10d VWAP at close<br>${last_rolling_y:.2f}",
+            showarrow=True,
+            arrowhead=2,
+            arrowcolor="rgba(180, 50, 50, 0.6)",
+            arrowsize=0.8,
+            ax=40,
+            ay=-28,
+            font=dict(size=10, color="rgba(180, 50, 50, 0.85)"),
+            bgcolor="rgba(255,255,255,0.75)",
+            bordercolor="rgba(180, 50, 50, 0.4)",
+            borderwidth=1,
+        )
 
     # Alternating session background shading (odd-indexed sessions)
     for i, date in enumerate(session_dates):
@@ -498,7 +522,7 @@ def main():
     <div class="section-label">Price &amp; VWAP — 10 sessions</div>
     {chart_html}
     <p class="chart-footnote">Solid price line shows 1-minute bars where available; hourly bars on initial backfill sessions (marked in table).</p>
-    <p class="chart-footnote">Green dots: session opens &nbsp;|&nbsp; Red dots: session closes &nbsp;|&nbsp; Orange segments: rolling 10-day VWAP as of each session close &nbsp;|&nbsp; Orange line: current 10-day VWAP.</p>
+    <p class="chart-footnote">Green dots: session opens &nbsp;|&nbsp; Red dots: session closes &nbsp;|&nbsp; Faded red segments: rolling 10-day VWAP as of each session close (shows drift over time) &nbsp;|&nbsp; Orange line: current 10-day VWAP.</p>
   </div>
 
   <div class="table-wrap">
