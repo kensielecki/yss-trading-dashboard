@@ -126,9 +126,10 @@ def main():
     # ── Log T-2 to T-5 corrections ────────────────────────────────────────
     log_t2_t5_corrections(old_archive, combined, today_date)
 
-    # ── Prune to last 10 trading sessions ─────────────────────────────────
-    sessions_10 = get_last_n_trading_sessions(10)
-    sessions_set = set(sessions_10)
+    # ── Prune to last 11 trading sessions ────────────────────────────────
+    # 11 so that after splitting off today, the settled archive always has 10.
+    sessions_11 = get_last_n_trading_sessions(11)
+    sessions_set = set(sessions_11)
     combined = combined[combined["date"].isin(sessions_set)].copy()
     print(f"Sessions in dataset: {sorted(combined['date'].unique())}")
 
@@ -171,20 +172,28 @@ def main():
         print("All 10 sessions covered — no hourly backfill needed.")
 
     # ── Split: settled (T-1 and older) vs today ───────────────────────────
-    settled   = combined[combined["date"] < today_date].copy()
+    settled    = combined[combined["date"] < today_date].copy()
     today_bars = combined[combined["date"] == today_date].copy()
     print(f"Settled bars: {len(settled):,} | Today's bars: {len(today_bars):,}")
 
-    # ── Write settled-only archive (clean, no intraday spikes) ────────────
-    out_archive = settled.drop(columns=["date"]).copy()
+    # ── Write settled-only archive (10 sessions, no intraday spikes) ──────
+    # Prune settled to the 10 most recent sessions before writing.
+    settled_dates = sorted(settled["date"].unique())
+    settled_10 = set(settled_dates[-10:])
+    archive_data = settled[settled["date"].isin(settled_10)].copy()
+    out_archive = archive_data.drop(columns=["date"]).copy()
     out_archive["timestamp_et"] = out_archive["timestamp_et"].map(lambda x: x.isoformat())
     out_archive.to_csv(
         ARCHIVE_PATH, sep="\t", index=False, encoding="utf-8", lineterminator="\n"
     )
-    print(f"Wrote settled archive: {len(out_archive):,} bars → {ARCHIVE_PATH}")
+    print(f"Wrote settled archive: {len(out_archive):,} bars ({len(settled_10)} sessions) → {ARCHIVE_PATH}")
 
-    # ── Write display dataset (settled + today) for compute_vwap ──────────
-    display = pd.concat([settled, today_bars], ignore_index=True).sort_values("timestamp_et")
+    # ── Write display dataset (10 most recent sessions incl. today) ───────
+    # Combine settled (all 10) + today, then take the 10 most recent sessions.
+    display_all = pd.concat([settled, today_bars], ignore_index=True).sort_values("timestamp_et")
+    display_dates = sorted(display_all["date"].unique())
+    display_10 = set(display_dates[-10:])
+    display = display_all[display_all["date"].isin(display_10)].copy()
     out_display = display.drop(columns=["date"]).copy()
     out_display["timestamp_et"] = out_display["timestamp_et"].map(lambda x: x.isoformat())
     out_display.to_csv(
