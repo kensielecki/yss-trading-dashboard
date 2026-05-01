@@ -127,10 +127,11 @@ def main():
         .set_index("_date")["open"]
         .to_dict()
     )
-    _daily_vwap_by_date = (
+    _rolling_vwap_by_date = (
         summary_df.assign(_date=pd.to_datetime(summary_df["date"]).dt.date)
-        .set_index("_date")["daily_vwap"]
+        .set_index("_date")["rolling_vwap_10d"]
         .to_dict()
+        if "rolling_vwap_10d" in summary_df.columns else {}
     )
 
     # ── Plotly chart ──────────────────────────────────────────────────────
@@ -173,12 +174,12 @@ def main():
         annotation_font=dict(size=11, color="#D85A30"),
     )
 
-    # Per-session daily VWAP horizontal segments
-    # One line per session spanning that session's time range at the session's daily VWAP.
-    # Shows how the daily VWAP has evolved across sessions.
-    first_daily_vwap_trace = True
+    # Per-session rolling 10-day VWAP segments
+    # Each segment spans that session's time range at the 10-day VWAP level
+    # as it stood at that session's close — shows how the 10-day VWAP drifts over time.
+    first_rolling_trace = True
     for date in session_dates:
-        vwap = _daily_vwap_by_date.get(date)
+        vwap = _rolling_vwap_by_date.get(date)
         if vwap is None or pd.isna(vwap):
             continue
         sess = running_df[running_df["_date"] == date]
@@ -187,16 +188,16 @@ def main():
                 x=[sess["timestamp_et"].iloc[0], sess["timestamp_et"].iloc[-1]],
                 y=[float(vwap), float(vwap)],
                 mode="lines",
-                name="Daily VWAP" if first_daily_vwap_trace else None,
-                showlegend=first_daily_vwap_trace,
+                name="10-day VWAP (at close)" if first_rolling_trace else None,
+                showlegend=first_rolling_trace,
                 line=dict(color="#E8892A", width=2.5),
                 hovertemplate=(
-                    f"%{{x|%b %d}}<br>Daily VWAP: ${float(vwap):.2f}<extra></extra>"
+                    f"%{{x|%b %d}}<br>10-day VWAP at close: ${float(vwap):.2f}<extra></extra>"
                 ),
             ),
             secondary_y=False,
         )
-        first_daily_vwap_trace = False
+        first_rolling_trace = False
 
     # Alternating session background shading (odd-indexed sessions)
     for i, date in enumerate(session_dates):
@@ -497,7 +498,7 @@ def main():
     <div class="section-label">Price &amp; VWAP — 10 sessions</div>
     {chart_html}
     <p class="chart-footnote">Solid price line shows 1-minute bars where available; hourly bars on initial backfill sessions (marked in table).</p>
-    <p class="chart-footnote">Green dots: session opens &nbsp;|&nbsp; Red dots: session closes &nbsp;|&nbsp; Orange segments: daily VWAP per session &nbsp;|&nbsp; Orange line: 10-day aggregate VWAP.</p>
+    <p class="chart-footnote">Green dots: session opens &nbsp;|&nbsp; Red dots: session closes &nbsp;|&nbsp; Orange segments: rolling 10-day VWAP as of each session close &nbsp;|&nbsp; Orange line: current 10-day VWAP.</p>
   </div>
 
   <div class="table-wrap">

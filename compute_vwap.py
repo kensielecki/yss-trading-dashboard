@@ -58,6 +58,18 @@ def main():
     )
     daily = daily.merge(hf, on="date")
 
+    # ── Rolling 10-day VWAP as of each session close ──────────────────────
+    # For each session date D, compute VWAP using all bars in the archive up
+    # to and including D. This shows how the 10-day VWAP has shifted over time.
+    session_dates = sorted(df["date"].unique())
+    rolling_vwap_map = {}
+    for d in session_dates:
+        df_up_to = df[df["date"] <= d]
+        rolling_vwap_map[d] = round(
+            df_up_to["tp_vol"].sum() / df_up_to["volume"].sum(), 4
+        )
+    daily["rolling_vwap_10d"] = daily["date"].map(rolling_vwap_map)
+
     # ── Fetch official daily bars (interval=1d) ───────────────────────────
     # These match the Yahoo Finance historical data page exactly.
     # Used to override settled session open/close/volume for display accuracy.
@@ -94,7 +106,7 @@ def main():
 
     summary_path = f"output/{today}_daily_summary.tsv"
     daily[
-        ["date", "open", "close", "pct_change", "volume", "daily_vwap", "high_fidelity"]
+        ["date", "open", "close", "pct_change", "volume", "daily_vwap", "rolling_vwap_10d", "high_fidelity"]
     ].to_csv(
         summary_path, sep="\t", index=False, encoding="utf-8",
         lineterminator="\n", float_format="%.4f"
