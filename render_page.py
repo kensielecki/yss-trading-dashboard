@@ -1,4 +1,5 @@
 import glob
+import json
 import os
 import sys
 import pytz
@@ -36,16 +37,56 @@ def get_market_holidays(start_year=2025, end_year=2027):
     return sorted(d.strftime("%Y-%m-%d") for d in h)
 
 
+def load_validation_warning():
+    """Return HTML warning banner string, or empty string if no active discrepancies."""
+    result_path   = "output/validation_result.json"
+    override_path = "output/validation_overrides.json"
+
+    if not os.path.exists(result_path):
+        return ""
+
+    with open(result_path) as f:
+        result = json.load(f)
+
+    discrepancies = result.get("discrepancies", [])
+    if not discrepancies:
+        return ""
+
+    ack_keys = set()
+    if os.path.exists(override_path):
+        with open(override_path) as f:
+            overrides = json.load(f).get("overrides", [])
+        ack_keys = {(o["date"], o["field"]) for o in overrides}
+
+    active = [d for d in discrepancies if (d["date"], d["field"]) not in ack_keys]
+    if not active:
+        return ""
+
+    items = "\n".join(
+        f'<li><strong>{d["date"]}</strong> &mdash; {d["field"]}: '
+        f'yfinance {d["yfinance_val"]:,.2f} vs Yahoo Finance {d["scraped_val"]:,.2f} '
+        f'({d["pct_diff"]:+.1f}%)</li>'
+        for d in active
+    )
+    return f"""
+  <div class="warning-banner">
+    <strong>&#9888; Data validation warning</strong> &mdash;
+    yfinance and Yahoo Finance website differ beyond acceptable threshold:
+    <ul>{items}</ul>
+    <span class="warning-sub">To clear this warning, ask Claude Code to acknowledge the
+    discrepancy (it will update <code>output/validation_overrides.json</code>).</span>
+  </div>"""
+
+
 def main():
-    summary_df  = pd.read_csv(latest_file("output/*_daily_summary.tsv"), sep="\t")
-    running_df  = pd.read_csv(latest_file("output/*_running_vwap.tsv"),   sep="\t")
+    summary_df  = pd.read_csv(latest_file("output/*_daily_summary.tsv"),   sep="\t")
+    running_df  = pd.read_csv(latest_file("output/*_running_vwap.tsv"),    sep="\t")
     headline_df = pd.read_csv(latest_file("output/*_headline_metrics.tsv"), sep="\t")
 
     running_df["timestamp_et"] = (
         pd.to_datetime(running_df["timestamp_et"], utc=True).dt.tz_convert(ET)
     )
 
-    # Parse high_fidelity column (CSV round-trips booleans as strings)
     if "high_fidelity" in summary_df.columns:
         summary_df["high_fidelity"] = (
             summary_df["high_fidelity"].astype(str).str.lower() == "true"
@@ -54,11 +95,11 @@ def main():
         summary_df["high_fidelity"] = True
 
     m = headline_df.iloc[0]
-    last_price    = float(m["last_price"])
-    vwap_10d      = float(m["vwap_10d"])
-    high_10d      = float(m["high_10d"])
-    low_10d       = float(m["low_10d"])
-    avg_vol_10d   = int(m["avg_volume_10d"])
+    last_price  = float(m["last_price"])
+    vwap_10d    = float(m["vwap_10d"])
+    high_10d    = float(m["high_10d"])
+    low_10d     = float(m["low_10d"])
+    avg_vol_10d = int(m["avg_volume_10d"])
     last_updated_raw = str(m["last_updated"])
 
     def fmt_ts(dt):
@@ -75,21 +116,27 @@ def main():
         data_through_fmt = last_updated_raw
 
     page_refreshed_fmt = fmt_ts(datetime.now(ET))
+    market_holidays    = get_market_holidays()
 
-    market_holidays = get_market_holidays()
-
-    # ── Session groups (bands + markers) ──────────────────────────────────
+    # ── Session metadata ──────────────────────────────────────────────────
     running_df["_date"] = running_df["timestamp_et"].dt.date
     session_dates = sorted(running_df["_date"].unique())
+
     _open_by_date = (
         summary_df.assign(_date=pd.to_datetime(summary_df["date"]).dt.date)
         .set_index("_date")["open"]
         .to_dict()
     )
+    _daily_vwap_by_date = (
+        summary_df.assign(_date=pd.to_datetime(summary_df["date"]).dt.date)
+        .set_index("_date")["daily_vwap"]
+        .to_dict()
+    )
 
-    # ── Plotly chart ───────────────────────────────────────────────────────
+    # ── Plotly chart ──────────────────────────────────────────────────────
     fig = make_subplots(specs=[[{"secondary_y": True}]])
 
+    # Price line
     fig.add_trace(
         go.Scatter(
             x=running_df["timestamp_et"],
@@ -102,6 +149,7 @@ def main():
         secondary_y=False,
     )
 
+    # Volume bars
     fig.add_trace(
         go.Bar(
             x=running_df["timestamp_et"],
@@ -114,6 +162,7 @@ def main():
         secondary_y=True,
     )
 
+    # 10-day aggregate VWAP horizontal line
     fig.add_hline(
         y=vwap_10d,
         line_dash="solid",
@@ -124,7 +173,32 @@ def main():
         annotation_font=dict(size=11, color="#D85A30"),
     )
 
-    # Change B: alternating session background shading (odd-indexed sessions)
+    # Per-session daily VWAP horizontal segments
+    # One line per session spanning that session's time range at the session's daily VWAP.
+    # Shows how the daily VWAP has evolved across sessions.
+    first_daily_vwap_trace = True
+    for date in session_dates:
+        vwap = _daily_vwap_by_date.get(date)
+        if vwap is None or pd.isna(vwap):
+            continue
+        sess = running_df[running_df["_date"] == date]
+        fig.add_trace(
+            go.Scatter(
+                x=[sess["timestamp_et"].iloc[0], sess["timestamp_et"].iloc[-1]],
+                y=[float(vwap), float(vwap)],
+                mode="lines",
+                name="Daily VWAP" if first_daily_vwap_trace else None,
+                showlegend=first_daily_vwap_trace,
+                line=dict(color="#E8892A", width=2.5),
+                hovertemplate=(
+                    f"%{{x|%b %d}}<br>Daily VWAP: ${float(vwap):.2f}<extra></extra>"
+                ),
+            ),
+            secondary_y=False,
+        )
+        first_daily_vwap_trace = False
+
+    # Alternating session background shading (odd-indexed sessions)
     for i, date in enumerate(session_dates):
         if i % 2 == 0:
             continue
@@ -137,11 +211,11 @@ def main():
             line_width=0,
         )
 
-    # Change C: open/close price markers per session
+    # Session open / close markers
     open_xs, open_ys, close_xs, close_ys = [], [], [], []
     for date in session_dates:
-        sess = running_df[running_df["_date"] == date]
-        open_price = _open_by_date.get(date)
+        sess        = running_df[running_df["_date"] == date]
+        open_price  = _open_by_date.get(date)
         if open_price is not None:
             open_xs.append(sess["timestamp_et"].iloc[0])
             open_ys.append(float(open_price))
@@ -200,7 +274,7 @@ def main():
         rangebreaks=[
             dict(bounds=["sat", "mon"]),
             dict(values=market_holidays),
-            dict(bounds=[16, 9.5], pattern="hour"),  # overnight 4 PM – 9:30 AM ET
+            dict(bounds=[16, 9.5], pattern="hour"),
         ]
     )
 
@@ -221,7 +295,7 @@ def main():
         else:
             pct_str, pct_cls = f"{float(pct):.2f}%", "negative"
 
-        is_hf = bool(row["high_fidelity"])
+        is_hf    = bool(row["high_fidelity"])
         vwap_str = fmt_price(row["daily_vwap"])
         if not is_hf:
             vwap_str = f'{vwap_str} <span class="hf-mark">*</span>'
@@ -244,6 +318,9 @@ def main():
             "Replaced by minute-bar VWAP as archive accumulates over ~3 trading days."
             "</p>"
         )
+
+    # ── Validation warning banner ─────────────────────────────────────────
+    warning_banner = load_validation_warning()
 
     # ── Full HTML ─────────────────────────────────────────────────────────
     html = f"""<!DOCTYPE html>
@@ -288,6 +365,19 @@ def main():
     .timestamps {{ text-align: right; line-height: 1.55; }}
     .ts-data {{ font-size: 13px; color: #555; }}
     .ts-refresh {{ font-size: 12px; color: #aaa; }}
+
+    .warning-banner {{
+      background: #fff8e6;
+      border: 1px solid #f5c518;
+      border-left: 4px solid #f5c518;
+      border-radius: 8px;
+      padding: 14px 18px;
+      margin: 16px 0 4px;
+      font-size: 13.5px;
+    }}
+    .warning-banner ul {{ margin: 8px 0 8px 20px; }}
+    .warning-banner li {{ margin: 4px 0; }}
+    .warning-sub {{ font-size: 11.5px; color: #888; }}
 
     .metrics {{
       display: grid;
@@ -379,7 +469,7 @@ def main():
       <div class="ts-refresh">Page refreshed: {page_refreshed_fmt}</div>
     </div>
   </header>
-
+  {warning_banner}
   <div class="metrics">
     <div class="card">
       <div class="card-label">Last Price</div>
@@ -407,7 +497,7 @@ def main():
     <div class="section-label">Price &amp; VWAP — 10 sessions</div>
     {chart_html}
     <p class="chart-footnote">Solid price line shows 1-minute bars where available; hourly bars on initial backfill sessions (marked in table).</p>
-    <p class="chart-footnote">Green dots: session opens. Red dots: session closes (or latest price for today's session in progress).</p>
+    <p class="chart-footnote">Green dots: session opens &nbsp;|&nbsp; Red dots: session closes &nbsp;|&nbsp; Orange segments: daily VWAP per session &nbsp;|&nbsp; Orange line: 10-day aggregate VWAP.</p>
   </div>
 
   <div class="table-wrap">
@@ -433,17 +523,16 @@ def main():
   {table_footnote}
 
   <p class="footnote">
-    <strong>Methodology:</strong> VWAP&nbsp;=&nbsp;Σ(Typical&nbsp;Price&nbsp;×&nbsp;Volume)&nbsp;/&nbsp;Σ(Volume),
-    where Typical&nbsp;Price&nbsp;=&nbsp;(High&nbsp;+&nbsp;Low&nbsp;+&nbsp;Close)&nbsp;/&nbsp;3 per bar.
-    10-day VWAP covers all bars in the rolling 10-session archive. The archive grows over time:
-    minute bars (1-min) for recently fetched sessions, hourly bars for initial backfill sessions
-    (converges to full minute-bar fidelity after ~3 trading days). Data via Yahoo Finance (yfinance).
+    <strong>Methodology:</strong> VWAP&nbsp;=&nbsp;&Sigma;(Typical&nbsp;Price&nbsp;&times;&nbsp;Volume)&nbsp;/&nbsp;&Sigma;(Volume),
+    where Typical&nbsp;Price&nbsp;=&nbsp;(High&nbsp;+&nbsp;Low&nbsp;+&nbsp;Close)&nbsp;/&nbsp;3 per 1-minute bar.
+    Daily VWAP shown as orange segment per session; 10-day VWAP is the aggregate across all bars in the rolling archive.
+    Open/close/volume in the table use Yahoo Finance reconciled daily bars; VWAP uses 1-minute intraday bars.
     All timestamps America/New_York&nbsp;(ET).
   </p>
 
   <footer>
-    <span>YSS Trading Dashboard · auto-refreshed Mon–Fri via GitHub Actions</span>
-    <a href="https://kensielecki.github.io">← kensielecki.github.io</a>
+    <span>YSS Trading Dashboard &middot; auto-refreshed Mon&ndash;Fri via GitHub Actions</span>
+    <a href="https://kensielecki.github.io">&larr; kensielecki.github.io</a>
   </footer>
 
 </body>

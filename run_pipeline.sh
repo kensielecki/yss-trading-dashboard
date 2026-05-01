@@ -26,6 +26,7 @@ if ! ls output/*_minute_bars.tsv 2>/dev/null | grep -q .; then
 fi
 
 python3 compute_vwap.py
+python3 validate_yahoo.py || echo "[$(stamp)] validate_yahoo.py failed — skipping (dashboard will not show validation warning)"
 python3 render_page.py
 python3 prune_logs.py
 
