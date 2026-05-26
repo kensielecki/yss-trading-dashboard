@@ -83,9 +83,12 @@ def main():
     running_df  = pd.read_csv(latest_file("output/*_running_vwap.tsv"),    sep="\t")
     headline_df = pd.read_csv(latest_file("output/*_headline_metrics.tsv"), sep="\t")
 
-    running_df["timestamp_et"] = (
-        pd.to_datetime(running_df["timestamp_et"], utc=True).dt.tz_convert(ET).dt.tz_localize(None)
-    )
+    _ts_et = pd.to_datetime(running_df["timestamp_et"], utc=True).dt.tz_convert(ET)
+    # Compute _date here before string conversion so grouping works correctly
+    running_df["_date"] = _ts_et.dt.date
+    # Use clean string timestamps (no TZ offset, no nanoseconds) so Plotly JS
+    # rangebreaks based on local hours work correctly in the browser.
+    running_df["timestamp_et"] = _ts_et.dt.strftime("%Y-%m-%dT%H:%M:%S")
 
     if "high_fidelity" in summary_df.columns:
         summary_df["high_fidelity"] = (
@@ -119,7 +122,6 @@ def main():
     market_holidays    = get_market_holidays()
 
     # ── Session metadata ──────────────────────────────────────────────────
-    running_df["_date"] = running_df["timestamp_et"].dt.date
     session_dates = sorted(running_df["_date"].unique())
 
     _open_by_date = (
