@@ -273,12 +273,17 @@ def main():
         ),
     )
 
+    # Build explicit overnight breaks for each consecutive session pair.
+    # Avoids Plotly JS 3.5.0's pattern="hour" rangebreak which incorrectly
+    # hides sessions near long multi-day gaps (e.g. weekend + holiday).
+    overnight_breaks = []
+    for i in range(len(session_dates) - 1):
+        d1 = str(session_dates[i])
+        d2 = str(session_dates[i + 1])
+        overnight_breaks.append(dict(bounds=[f"{d1}T16:00:00", f"{d2}T09:30:00"]))
+
     fig.update_xaxes(
-        rangebreaks=[
-            dict(bounds=["sat", "mon"]),
-            dict(values=market_holidays),
-            dict(bounds=[16, 9.5], pattern="hour"),
-        ]
+        rangebreaks=overnight_breaks
     )
 
     chart_html = pio.to_html(
