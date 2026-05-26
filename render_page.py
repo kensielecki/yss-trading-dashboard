@@ -84,7 +84,7 @@ def main():
     headline_df = pd.read_csv(latest_file("output/*_headline_metrics.tsv"), sep="\t")
 
     running_df["timestamp_et"] = (
-        pd.to_datetime(running_df["timestamp_et"], utc=True).dt.tz_convert(ET)
+        pd.to_datetime(running_df["timestamp_et"], utc=True).dt.tz_convert(ET).dt.tz_localize(None)
     )
 
     if "high_fidelity" in summary_df.columns:

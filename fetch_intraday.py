@@ -32,7 +32,9 @@ def get_last_n_trading_sessions(n=10):
 
 
 def is_trading_day():
-    return datetime.now(ET).weekday() < 5
+    nyse_h = _nyse_holidays()
+    today = datetime.now(ET).date()
+    return today.weekday() < 5 and today not in nyse_h
 
 
 def log_t2_t5_corrections(old_df, new_df, today_date):
