@@ -1,7 +1,7 @@
 {
-  "run_at": "2026-07-16T18:15:33.105481-04:00",
-  "scrape_success": true,
-  "rows_scraped": 116,
-  "error": null,
+  "run_at": "2026-07-17T11:02:42.713127-04:00",
+  "scrape_success": false,
+  "rows_scraped": 0,
+  "error": "Playwright timeout: Page.goto: Timeout 30000ms exceeded.\nCall log:\n  - navigating to \"https://finance.yahoo.com/quote/YSS/history/\", waiting until \"domcontentloaded\"\n",
   "discrepancies": []
 }
